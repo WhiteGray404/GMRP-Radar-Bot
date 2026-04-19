@@ -30,9 +30,32 @@ jobs:
               await page.setViewport({ width: 1920, height: 1080 });
               await page.goto('https://geofs-live-radar.onrender.com', { waitUntil: 'networkidle2', timeout: 60000 });
               
-              // Force Dark Mode via CSS immediately
-             await page.addStyleTag({ content: 'body, .leaflet-container { background: #000 !important; } .leaflet-tile-container img { filter: brightness(0.4) invert(1) contrast(3) hue-rotate(180deg) saturate(0.3) !important; } .leaflet-tile { background: #000 !important; }' });
+              await page.addStyleTag({ content: 'body, .leaflet-container { background: #000 !important; } .leaflet-tile-container img { filter: brightness(0.4) invert(1) contrast(3) hue-rotate(180deg) saturate(0.3) !important; } .leaflet-tile { background: #000 !important; }' });
+              
               await new Promise(r => setTimeout(r, 15000)); 
+
+              const players = await page.evaluate(() => {
+                const results = { iaf: [], unidentified: [], airspace: [] };
+                document.querySelectorAll('.leaflet-marker-icon').forEach(marker => {
+                  const title = marker.title || '';
+                  if (title.includes('IAF')) {
+                    results.iaf.push(title);
+                  } else if (title.includes('[U]')) {
+                    results.unidentified.push(title);
+                  } else if (title !== '') {
+                    results.airspace.push(title);
+                  }
+                });
+                return results;
+              });
+
+              const fs = require('fs');
+              let report = '🛰️ **GMRP-IAF TACTICAL RADAR REPORT**\n\n';
+              report += '🟢 **1st Priority (IAF):** ' + (players.iaf.length > 0 ? players.iaf.join(', ') : 'None detected') + '\n';
+              report += '🟡 **2nd Priority ([U]):** ' + (players.unidentified.length > 0 ? players.unidentified.join(', ') : 'Clear') + '\n';
+              report += '🔴 **3rd Priority (Other Forces):** ' + (players.airspace.slice(0, 5).join(', ')) + (players.airspace.length > 5 ? '...and others' : '') + '\n';
+              
+              fs.writeFileSync('report.txt', report);
               await page.screenshot({ path: 'radar.png' });
               await browser.close();
             } catch (err) {
@@ -43,4 +66,5 @@ jobs:
 
       - name: Send to Discord
         run: |
-          curl -X POST -F "file=@radar.png" -F "payload_json={\"content\": \"🛰️ **GMRP-IAF LIVE RADAR UPDATE** \nClick here to interact: https://geofs-live-radar.onrender.com\"}" ${{ secrets.DISCORD_WEBHOOK }}
+          REPORT_TEXT=$(cat report.txt)
+          curl -X POST -F "file=@radar.png" -F "payload_json={\"content\": \"$REPORT_TEXT \n\n🔗 Live Link: https://geofs-live-radar.onrender.com\"}" ${{ secrets.DISCORD_WEBHOOK }}
