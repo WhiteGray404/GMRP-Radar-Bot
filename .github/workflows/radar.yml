@@ -66,8 +66,11 @@ jobs:
 
       - name: Send to Discord
         run: |
-          REPORT_CONTENT=$(cat report.txt)
-          curl -H "Content-Type: multipart/form-data" \
-               -F "file=@radar.png" \
-               -F "payload_json={\"content\": \"$REPORT_CONTENT \n\n🔗 Live Link: https://geofs-live-radar.onrender.com\"}" \
-               ${{ secrets.DISCORD_WEBHOOK }}
+          # Read the report and remove any weird characters that break Discord
+          REPORT=$(cat report.txt | tr -d '"' | tr -d "'")
+          
+          # Send the image and the text together
+          curl -X POST \
+            -F "file=@radar.png" \
+            -F "payload_json={\"content\": \"$REPORT\n\n🔗 **Radar Link:** https://geofs-live-radar.onrender.com\"}" \
+            ${{ secrets.DISCORD_WEBHOOK }}
