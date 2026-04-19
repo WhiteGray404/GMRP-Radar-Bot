@@ -28,61 +28,67 @@ jobs:
           (async () => {
             const browser = await puppeteer.launch({ args: ['--no-sandbox'] });
             const page = await browser.newPage();
-            // 1. Set a fixed tactical resolution
             await page.setViewport({ width: 1920, height: 1080 });
             
-            // 2. Load Radar centered on India with Zoom 5 (URL parameters)
-            // lat=21.5, lon=81.0, z=5 centers India perfectly on a 1920x1080 screen
-            await page.goto('https://geofs-live-radar.onrender.com/?lat=21.5&lon=81.0&z=5', { waitUntil: 'networkidle2', timeout: 90000 });
+            // 1. Load the radar
+            await page.goto('https://geofs-live-radar.onrender.com', { waitUntil: 'networkidle2', timeout: 90000 });
             
-            // 3. Wait for aircraft markers to appear
-            await page.waitForSelector('.leaflet-marker-icon', { timeout: 60000 });
-            await new Promise(r => setTimeout(r, 20000)); // Short buffer for markers to finish moving
+            // 2. Wait for the data to stabilize (60 seconds for 800+ aircraft)
+            await new Promise(r => setTimeout(r, 60000)); 
 
-            // Tactical Black Map
             try { await page.click('.fa-moon'); } catch(e) {}
 
             const scanResult = await page.evaluate(() => {
-              const all = [];
-              // INDIA PIXEL GEOFENCE (Calibrated for 1920x1080 at Zoom 5)
-              // These pixels cover the Indian mainland from Kashmir to Kanyakumari
-              const indiaBox = { xMin: 720, xMax: 1250, yMin: 180, yMax: 880 };
+              // --- INTERNAL GPS SCANNER ---
+              const india = { latN: 37.5, latS: 6.5, lngW: 68.0, lngE: 97.5 };
+              const markers = document.querySelectorAll('.leaflet-marker-icon');
+              const results = [];
 
-              document.querySelectorAll('.leaflet-marker-icon').forEach(m => {
+              // Attempt to find the Map Object safely
+              const mapEl = document.querySelector('.leaflet-container');
+              const map = mapEl ? (mapEl._leaflet_map || Object.values(mapEl).find(v => v._leaflet_map)?._leaflet_map) : null;
+
+              markers.forEach(m => {
                 const name = (m.title || m.innerText || m.getAttribute('aria-label') || '').replace(/[^a-zA-Z0-9()[\] _-]/g, '');
                 if (!name) return;
 
-                const rect = m.getBoundingClientRect();
-                const isOverIndia = (rect.left > indiaBox.xMin && rect.left < indiaBox.xMax) &&
-                                    (rect.top > indiaBox.yMin && rect.top < indiaBox.yMax);
-                
-                all.push({ name, isOverIndia });
+                let isOverIndia = false;
+                if (map && m._leaflet_pos) {
+                  try {
+                    // Convert marker pixel position to real world GPS
+                    const latLng = map.layerPointToLatLng(m._leaflet_pos);
+                    isOverIndia = (latLng.lat <= india.latN && latLng.lat >= india.latS) &&
+                                  (latLng.lng >= india.lngW && latLng.lng <= india.lngE);
+                  } catch(e) {}
+                }
+                results.push({ name, isOverIndia });
               });
-              return all;
+              return results;
             });
 
             const milTags = ['UKAF', 'USAF', 'RAAF', 'RIAF', 'RAF', 'RNZAF', 'UAEAF', 'BPYR', 'LUFT', 'AAF', 'CAEAF', 'CAE', 'RCAF', 'PAF', 'PAKISTAN'];
 
-            // 4. Intelligence Categorization
+            // 1. IAF (Friendly - Green)
             const iafList = scanResult.filter(p => p.name.toUpperCase().includes('IAF')).map(p => p.name);
             
-            // Other AFs - STRICTLY EXCLUDE IAF
+            // 2. Other Air Forces (Red list - EXCLUDES Friendly IAF)
             const otherAFList = scanResult.filter(p => {
               const name = p.name.toUpperCase();
               const isMil = milTags.some(tag => name.includes(tag)) || name.includes('AIRFORCE') || name.endsWith('AF');
-              const isIAF = name.includes('IAF');
+              const isIAF = name.includes('IAF'); 
               return isMil && !isIAF && !name.startsWith('EK');
             });
 
+            // 3. Unidentified (Yellow list)
             const uList = scanResult.filter(p => {
               const name = p.name.toUpperCase();
-              return name.includes('[U') && !iafList.includes(p.name) && !otherAFList.some(o => o.name === p.name);
+              const isIAF = name.includes('IAF');
+              const isOtherAF = otherAFList.some(o => o.name === p.name);
+              return name.includes('[U') && !isIAF && !isOtherAF;
             }).map(p => p.name);
 
-            // 5. Status Logic (Red Alert for any AF in the India Box)
+            // 4. STATUS REPORTING
             let statusUpdate = '\\n\\n🔵 **STATUS:** All clear. No foreign military in sector.';
-            
-            // Any foreign mil plane inside the pixel box triggers the Red Alert
             const incursions = otherAFList.filter(p => p.isOverIndia).map(p => p.name);
             const otherAFNames = otherAFList.map(p => p.name);
 
