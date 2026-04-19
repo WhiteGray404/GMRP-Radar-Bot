@@ -1,0 +1,38 @@
+name: Update Radar Screenshot
+on:
+  schedule:
+    - cron: '*/30 * * * *' # Updates every 30 minutes
+  workflow_dispatch: # Allows manual refresh
+
+jobs:
+  screenshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+
+      - name: Install Puppeteer
+        run: npm install puppeteer
+
+      - name: Take Screenshot
+        run: |
+          node -e "
+          const puppeteer = require('puppeteer');
+          (async () => {
+            const browser = await puppeteer.launch({ args: ['--no-sandbox'] });
+            const page = await browser.newPage();
+            await page.setViewport({ width: 1920, height: 1080 });
+            await page.goto('https://geofs-live-radar.onrender.com', { waitUntil: 'networkidle2' });
+            await new Promise(r => setTimeout(r, 10000)); 
+            await page.screenshot({ path: 'radar.png' });
+            await browser.close();
+          })();"
+
+      - name: Send to Discord
+        run: |
+          curl -X POST -F "file=@radar.png" -F "payload_json={\"content\": \"🛰️ **GMRP-IAF LIVE RADAR UPDATE** \nClick here to interact: https://geofs-live-radar.onrender.com\"}" ${{ secrets.DISCORD_WEBHOOK }}
