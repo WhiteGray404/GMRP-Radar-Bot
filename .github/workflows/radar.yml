@@ -30,57 +30,67 @@ jobs:
             const page = await browser.newPage();
             await page.setViewport({ width: 1920, height: 1080 });
             
-            // 1. ZOOM 6: This zooms in closer on India to exclude the Middle East from the screen
-            await page.goto('https://geofs-live-radar.onrender.com/?lat=22.5&lon=82.0&z=6', { waitUntil: 'networkidle2', timeout: 60000 });
+            // 1. Navigate to Radar
+            await page.goto('https://geofs-live-radar.onrender.com', { waitUntil: 'networkidle2', timeout: 60000 });
             
+            // 2. FORCE ZOOM AND POSITION VIA CODE (More reliable than URL)
+            await page.evaluate(() => {
+                const mapContainer = document.querySelector('.leaflet-container');
+                const map = mapContainer._leaflet_map || Object.values(mapContainer).find(v => v._leaflet_map)._leaflet_map;
+                map.setView([22.5, 82.0], 5); // Position over India at Zoom 5
+            });
+
             await new Promise(r => setTimeout(r, 45000)); 
 
             try { await page.click('.fa-moon'); } catch(e) {}
 
             const scanResult = await page.evaluate(() => {
-              const all = [];
+              const mapContainer = document.querySelector('.leaflet-container');
+              const map = mapContainer._leaflet_map || Object.values(mapContainer).find(v => v._leaflet_map)._leaflet_map;
               
-              // 2. PRECISION BOX: Tightened to the center of the screen (1920x1080)
-              // Only captures markers physically located over the Indian subcontinent
-              const indiaBox = { xMin: 750, xMax: 1250, yMin: 200, yMax: 850 };
+              // India GPS Bounding Box
+              const india = { latN: 37.5, latS: 6.5, lngW: 68.0, lngE: 97.5 };
 
-              document.querySelectorAll('.leaflet-marker-icon').forEach(m => {
+              return Array.from(document.querySelectorAll('.leaflet-marker-icon')).map(m => {
                 const name = (m.title || m.innerText || m.getAttribute('aria-label') || '').replace(/[^a-zA-Z0-9()[\] _-]/g, '');
-                if (!name) return;
-
-                const rect = m.getBoundingClientRect();
-                const isInsideRedZone = (rect.left > indiaBox.xMin && rect.left < indiaBox.xMax) &&
-                                        (rect.top > indiaBox.yMin && rect.top < indiaBox.yMax);
                 
-                all.push({ name, isInsideRedZone });
+                // Extract GPS from Leaflet internal state
+                const latLng = map.layerPointToLatLng(m._leaflet_pos);
+                
+                const isOverIndia = (latLng.lat <= india.latN && latLng.lat >= india.latS) &&
+                                    (latLng.lng >= india.lngW && latLng.lng <= india.lngE);
+                
+                return { name, isOverIndia, lat: latLng.lat, lng: latLng.lng };
               });
-              return all;
             });
 
             const milTags = ['UKAF', 'USAF', 'RAAF', 'RIAF', 'RAF', 'RNZAF', 'UAEAF', 'BPYR', 'LUFT', 'AAF', 'CAEAF', 'CAE', 'RCAF', 'PAF', 'PAKISTAN'];
 
-            // Intelligence Lists
+            // 1. IAF Priority - STRICT EXCLUSION
             const iafList = scanResult.filter(p => p.name.toUpperCase().includes('IAF')).map(p => p.name);
             
+            // 2. Other Air Forces - EXCLUDING IAF
             const otherAFList = scanResult.filter(p => {
               const name = p.name.toUpperCase();
               const isMil = milTags.some(tag => name.includes(tag)) || name.includes('AIRFORCE') || name.endsWith('AF');
-              return isMil && !name.includes('IAF') && !name.startsWith('EK');
+              const isIAF = name.includes('IAF'); // Explicitly block IAF from this list
+              return isMil && !isIAF && !name.startsWith('EK');
             });
 
+            // 3. Unidentified
             const uList = scanResult.filter(p => {
               const name = p.name.toUpperCase();
               return name.includes('[U') && !iafList.includes(p.name) && !otherAFList.some(o => o.name === p.name);
             }).map(p => p.name);
 
-            // 3. STATUS LOGIC (Strict Geofence)
+            // 4. STATUS LOGIC (Strict GPS Check)
             let statusUpdate = '\\n\\n🔵 **STATUS:** All clear. No foreign military in sector.';
             
-            const incursionDetected = otherAFList.some(p => p.isInsideRedZone);
+            const incursion = otherAFList.filter(p => p.isOverIndia);
             const otherAFNames = otherAFList.map(p => p.name);
 
-            if (incursionDetected) {
-                statusUpdate = '\\n\\n🚨 **RED ALERT: Foreign Military Aircraft detected inside INDIAN AIRSPACE!**';
+            if (incursion.length > 0) {
+                statusUpdate = '\\n\\n🚨 **RED ALERT: Foreign Military Aircraft detected inside INDIAN AIRSPACE!**\\nTargets: ' + incursion.map(i => i.name).join(', ');
             } else if (otherAFNames.length > 0) {
                 statusUpdate = '\\n\\n⚠️ **WARNING: Foreign Military activity detected outside borders.**';
             }
