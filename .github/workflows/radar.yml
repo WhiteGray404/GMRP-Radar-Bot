@@ -45,6 +45,7 @@ jobs:
             const unidentified = names.filter(n => n.includes('[U]')).join(', ') || 'Clear';
             const others = names.slice(0, 5).join(', ') || 'None';
 
+            // Clean the text to avoid breaking JSON
             const report = '🛰️ **GMRP-IAF TACTICAL REPORT**\n\n🟢 **IAF:** ' + iaf + '\n🟡 **[U]:** ' + unidentified + '\n🔴 **Others:** ' + others;
             
             fs.writeFileSync('report.txt', report);
@@ -56,8 +57,10 @@ jobs:
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
+          # We use jq to safely format the text for Discord
           REPORT_BODY=$(cat report.txt)
-          curl -X POST \
+          
+          curl -H "Content-Type: multipart/form-data" \
             -F "file=@radar.png" \
-            -F "payload_json={\"content\": \"$REPORT_BODY\n\n🔗 **Radar Link:** https://geofs-live-radar.onrender.com\"}" \
+            -F "payload_json={\"content\": \"$REPORT_BODY\"}" \
             $DISCORD_WEBHOOK
