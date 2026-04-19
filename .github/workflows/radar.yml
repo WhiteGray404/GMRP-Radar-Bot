@@ -43,7 +43,7 @@ jobs:
             });
 
             // TARGET LIST (Added PAKISTAN_AIRFORCE to the tracking list)
-            const milTags = ['USAF', 'RAAF', 'RIAF', 'RAF', 'RNZAF', 'UAEAF', 'BPYR', 'LUFT', 'AAF', 'CAEAF', 'CAE', 'RCAF', 'PAKISTAN_AIRFORCE'];
+            const milTags = ['USAF', 'RAAF', 'RIAF', 'RAF', 'RNZAF', 'UAEAF', 'BPYR', 'LUFT', 'AAF', 'CAEAF', 'CAE', 'RCAF', 'PAKISTAN_AIRFORCE', '[UTP]'];
 
             // 1. IAF Priority
             const iafList = names.filter(n => n.toUpperCase().includes('IAF'));
