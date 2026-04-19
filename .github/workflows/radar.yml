@@ -1,20 +1,20 @@
 name: Update Radar Screenshot
 on:
   schedule:
-    - cron: '*/30 * * * *' # Updates every 30 minutes
-  workflow_dispatch: # Allows manual refresh
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
 
 jobs:
   screenshot:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: '16'
+          node-version: '20'
 
       - name: Install Puppeteer
         run: npm install puppeteer
@@ -24,21 +24,24 @@ jobs:
           node -e "
           const puppeteer = require('puppeteer');
           (async () => {
-            const browser = await puppeteer.launch({ args: ['--no-sandbox'] });
-            const page = await browser.newPage();
-           await page.goto('https://geofs-live-radar.onrender.com', { waitUntil: 'networkidle2' });
-            
-            // This part finds the Theme button and clicks it to make it black
             try {
-                const themeButton = await page.$('.fa-sun, .fa-moon, [title*="theme"]');
-                if (themeButton) await themeButton.click();
-            } catch (e) {
-                console.log("Could not find theme button, trying CSS force...");
+              const browser = await puppeteer.launch({ args: ['--no-sandbox'] });
+              const page = await browser.newPage();
+              await page.setViewport({ width: 1920, height: 1080 });
+              await page.goto('https://geofs-live-radar.onrender.com', { waitUntil: 'networkidle2', timeout: 60000 });
+              
+              // Force Dark Mode via CSS immediately
+              await page.addStyleTag({ content: 'body, .leaflet-container { background: #000 !important; filter: invert(100%) hue-rotate(180deg); } img.leaflet-tile { filter: brightness(0.6) invert(100%) hue-rotate(180deg) !important; }' });
+              
+              await new Promise(r => setTimeout(r, 15000)); 
+              await page.screenshot({ path: 'radar.png' });
+              await browser.close();
+            } catch (err) {
+              console.error(err);
+              process.exit(1);
             }
+          })();"
 
-            // Force the background to black just in case
-            await page.addStyleTag({ content: 'body, .leaflet-container { background: #000 !important; }' });
-            
-            await new Promise(r => setTimeout(r, 10000)); 
-            await page.screenshot({ path: 'radar.png' });
-            await browser.close();
+      - name: Send to Discord
+        run: |
+          curl -X POST -F "file=@radar.png" -F "payload_json={\"content\": \"🛰️ **GMRP-IAF LIVE RADAR UPDATE** \nClick here to interact: https://geofs-live-radar.onrender.com\"}" ${{ secrets.DISCORD_WEBHOOK }}
