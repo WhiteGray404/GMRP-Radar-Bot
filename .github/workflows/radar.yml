@@ -19,11 +19,13 @@ jobs:
       - name: Install Puppeteer
         run: npm install puppeteer
 
-      - name: Take Screenshot and Scan
+      - name: Take Screenshot and Post to Discord
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
           node -e "
           const puppeteer = require('puppeteer');
-          const fs = require('fs');
+          const { execSync } = require('child_process');
           (async () => {
             try {
               const browser = await puppeteer.launch({ args: ['--no-sandbox'] });
@@ -31,7 +33,7 @@ jobs:
               await page.setViewport({ width: 1920, height: 1080 });
               await page.goto('https://geofs-live-radar.onrender.com', { waitUntil: 'networkidle2', timeout: 60000 });
               
-              // Dark Mode Force
+              // Tactical Dark Mode
               await page.addStyleTag({ content: 'body, .leaflet-container { background: #000 !important; } .leaflet-tile-container img { filter: brightness(0.4) invert(1) contrast(3) hue-rotate(180deg) saturate(0.3) !important; } .leaflet-tile { background: #000 !important; }' });
               
               await new Promise(r => setTimeout(r, 15000)); 
@@ -46,24 +48,21 @@ jobs:
               });
 
               // Organize Priorities
-              const iaf = names.filter(n => n.includes('IAF')).join(', ') || 'None';
+              const iaf = names.filter(n => n.toUpperCase().includes('IAF')).join(', ') || 'None Detected';
               const unidentified = names.filter(n => n.includes('[U]')).join(', ') || 'Clear';
-              const others = names.slice(0, 10).join(', ') || 'None';
+              const others = names.slice(0, 8).join(', ') || 'None';
 
-              const report = '🛰️ **GMRP-IAF TACTICAL REPORT**\n\n🟢 **IAF:** ' + iaf + '\n🟡 **[U]:** ' + unidentified + '\n🔴 **Others:** ' + others;
+              const report = '🛰️ **GMRP-IAF TACTICAL REPORT**\n\n🟢 **IAF:** ' + iaf + '\n🟡 **[U]:** ' + unidentified + '\n🔴 **Others:** ' + others + '\n\n🔗 **Radar:** https://geofs-live-radar.onrender.com';
               
-              fs.writeFileSync('report.txt', report);
               await page.screenshot({ path: 'radar.png' });
               await browser.close();
+
+              // SEND EVERYTHING TO DISCORD DIRECTLY FROM NODE
+              const curlCmd = \`curl -X POST -F \"file=@radar.png\" -F \"payload_json={\\\"content\\\": \\\"\${report.replace(/\\n/g, '\\\\n')}\\\"}\" \${process.env.DISCORD_WEBHOOK}\`;
+              execSync(curlCmd);
+
             } catch (err) {
+              console.error(err);
               process.exit(1);
             }
           })();"
-
-      - name: Send to Discord
-        run: |
-          # This sends the image first, then the text separately so they don't block each other
-          curl -F "file=@radar.png" ${{ secrets.DISCORD_WEBHOOK }}
-          curl -H "Content-Type: application/json" \
-               -d "{\"content\": \"$(cat report.txt)\"}" \
-               ${{ secrets.DISCORD_WEBHOOK }}
