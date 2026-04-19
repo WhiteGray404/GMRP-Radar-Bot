@@ -49,7 +49,7 @@ jobs:
             const iafList = names.filter(n => n.toUpperCase().includes('IAF'));
             
             // 2. Unidentified [U]
-            const uList = names.filter(n => n.includes('[U]', '[UTP]));
+            const uList = names.filter(n => n.includes('[U]') || n.includes('[UTP]'));
             
             // 3. Other Air Forces (Filtered by your list + any 'AF' or 'AIRFORCE' suffix)
             const otherAFList = names.filter(n => {
