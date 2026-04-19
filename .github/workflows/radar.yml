@@ -28,30 +28,23 @@ jobs:
             const browser = await puppeteer.launch({ args: ['--no-sandbox'] });
             const page = await browser.newPage();
             await page.setViewport({ width: 1920, height: 1080 });
-            
             await page.goto('https://geofs-live-radar.onrender.com', { waitUntil: 'networkidle2', timeout: 60000 });
             
-            // Wait 25 seconds to ensure all player names load correctly
+            // Wait 25 seconds for player data
             await new Promise(r => setTimeout(r, 25000)); 
 
             const names = await page.evaluate(() => {
-              const found = [];
-              document.querySelectorAll('.leaflet-marker-icon').forEach(m => {
-                const val = m.title || m.innerText || '';
-                if (val.length > 0) found.push(val.replace(/[^a-zA-Z0-9()[\] ]/g, ''));
-              });
-              return found;
+              return Array.from(document.querySelectorAll('.leaflet-marker-icon'))
+                .map(m => m.title || m.innerText || '')
+                .filter(t => t.length > 0)
+                .map(t => t.replace(/[^a-zA-Z0-9()[\] ]/g, ''));
             });
 
-            const iafList = names.filter(n => n.toUpperCase().includes('IAF'));
-            const uList = names.filter(n => n.includes('[U]'));
-            const otherList = names.filter(n => !n.toUpperCase().includes('IAF') && !n.includes('[U]')).slice(0, 10);
+            const iaf = names.filter(n => n.toUpperCase().includes('IAF')).join(', ') || 'N/A';
+            const unidentified = names.filter(n => n.includes('[U]')).join(', ') || 'N/A';
+            const others = names.filter(n => !n.toUpperCase().includes('IAF') && !n.includes('[U]')).slice(0, 10).join(', ') || 'N/A';
 
-            const iaf = iafList.length > 0 ? iafList.join(', ') : 'N/A';
-            const unidentified = uList.length > 0 ? uList.join(', ') : 'N/A';
-            const others = otherList.length > 0 ? otherList.join(', ') : 'N/A';
-
-            const report = '🛰️ **GMRP-IAF TACTICAL REPORT**\\n\\n🟢 **IAF:** ' + iaf + '\\n🟡 **[U]:** ' + unidentified + '\\n🔴 **Others:** ' + others;
+            const report = '🛰️ **GMRP-IAF TACTICAL REPORT**\n\n🟢 **IAF:** ' + iaf + '\n🟡 **[U]:** ' + unidentified + '\n🔴 **Others:** ' + others;
             
             fs.writeFileSync('report.txt', report);
             await page.screenshot({ path: 'radar.png' });
@@ -62,9 +55,12 @@ jobs:
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          # Read report and send both image and text in one go
+          # 1. Send the text report first
+          # We use jq to properly escape the text for a clean JSON send
           REPORT_BODY=$(cat report.txt)
-          curl -H "Content-Type: multipart/form-data" \
-               -F "file=@radar.png" \
-               -F "payload_json={\"content\": \"$REPORT_BODY\"}" \
+          curl -H "Content-Type: application/json" \
+               -d "$(JSON_REPORT=\"$REPORT_BODY\" node -e 'console.log(JSON.stringify({content: process.env.JSON_REPORT}))')" \
                $DISCORD_WEBHOOK
+          
+          # 2. Send the image immediately after
+          curl -F "file=@radar.png" $DISCORD_WEBHOOK
