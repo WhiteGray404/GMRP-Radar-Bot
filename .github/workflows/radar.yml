@@ -46,7 +46,7 @@ jobs:
             });
 
             // TARGET LIST (Case-insensitive check will be applied below)
-            const milTags = ['USAF','usaf', 'RAAF', 'raaf', 'RIAF','riaf', 'RAF', 'raf', 'RNZAF','rnzaf', 'UAEAF', 'uaeaf', 'BPYR', 'bpyr', 'LUFT', 'luft', 'AAF','aaf', 'CAEAF','caeaf', 'CAE','cae', 'RCAF','rcaf', 'PAF','paf', 'PAKISTAN'];
+            const milTags = ['UKAF', 'ukaf', 'USAF','usaf', 'RAAF', 'raaf', 'RIAF','riaf', 'RAF', 'raf', 'RNZAF','rnzaf', 'UAEAF', 'uaeaf', 'BPYR', 'bpyr', 'LUFT', 'luft', 'AAF','aaf', 'CAEAF','caeaf', 'CAE','cae', 'RCAF','rcaf', 'PAF','paf', 'PAKISTAN'];
 
             // 1. IAF Priority
             const iafList = names.filter(n => n.toUpperCase().includes('IAF'));
