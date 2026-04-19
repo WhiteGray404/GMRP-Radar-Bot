@@ -28,43 +28,38 @@ jobs:
           (async () => {
             const browser = await puppeteer.launch({ args: ['--no-sandbox'] });
             const page = await browser.newPage();
-            // 1. Force the viewport to a fixed size
             await page.setViewport({ width: 1920, height: 1080 });
             
-            // 2. Load the radar DIRECTLY centered on India (Lat: 21, Lon: 78, Zoom: 5)
-            await page.goto('https://geofs-live-radar.onrender.com/?lat=21.7679&lon=78.8718&z=5', { waitUntil: 'networkidle2', timeout: 60000 });
+            // 1. ZOOM 6: This zooms in closer on India to exclude the Middle East from the screen
+            await page.goto('https://geofs-live-radar.onrender.com/?lat=22.5&lon=82.0&z=6', { waitUntil: 'networkidle2', timeout: 60000 });
             
-            // Wait 45 seconds for markers to fetch
             await new Promise(r => setTimeout(r, 45000)); 
 
-            // Tactical Black Map
             try { await page.click('.fa-moon'); } catch(e) {}
 
             const scanResult = await page.evaluate(() => {
-              const invaders = [];
               const all = [];
               
-              // We define the center of the screen as Indian Airspace (1920x1080 viewport)
-              // This box covers the majority of the Indian landmass on the screen
-              const indiaBox = { xMin: 600, xMax: 1300, yMin: 200, yMax: 850 };
+              // 2. PRECISION BOX: Tightened to the center of the screen (1920x1080)
+              // Only captures markers physically located over the Indian subcontinent
+              const indiaBox = { xMin: 750, xMax: 1250, yMin: 200, yMax: 850 };
 
               document.querySelectorAll('.leaflet-marker-icon').forEach(m => {
                 const name = (m.title || m.innerText || m.getAttribute('aria-label') || '').replace(/[^a-zA-Z0-9()[\] _-]/g, '');
                 if (!name) return;
 
-                // Get pixel position on screen
                 const rect = m.getBoundingClientRect();
-                const isOverIndia = (rect.left > indiaBox.xMin && rect.left < indiaBox.xMax) &&
-                                    (rect.top > indiaBox.yMin && rect.top < indiaBox.yMax);
+                const isInsideRedZone = (rect.left > indiaBox.xMin && rect.left < indiaBox.xMax) &&
+                                        (rect.top > indiaBox.yMin && rect.top < indiaBox.yMax);
                 
-                all.push({ name, isOverIndia });
+                all.push({ name, isInsideRedZone });
               });
               return all;
             });
 
-            // 3. Intelligence Filtering
             const milTags = ['UKAF', 'USAF', 'RAAF', 'RIAF', 'RAF', 'RNZAF', 'UAEAF', 'BPYR', 'LUFT', 'AAF', 'CAEAF', 'CAE', 'RCAF', 'PAF', 'PAKISTAN'];
 
+            // Intelligence Lists
             const iafList = scanResult.filter(p => p.name.toUpperCase().includes('IAF')).map(p => p.name);
             
             const otherAFList = scanResult.filter(p => {
@@ -78,24 +73,21 @@ jobs:
               return name.includes('[U') && !iafList.includes(p.name) && !otherAFList.some(o => o.name === p.name);
             }).map(p => p.name);
 
-            // 4. STATUS LOGIC
+            // 3. STATUS LOGIC (Strict Geofence)
             let statusUpdate = '\\n\\n🔵 **STATUS:** All clear. No foreign military in sector.';
             
-            const incursionDetected = otherAFList.some(p => p.isOverIndia);
-            const highPriorityInAO = otherAFList.some(p => {
-               const n = p.name.toUpperCase();
-               return n.includes('PAKISTAN') || n.includes('PAF');
-            });
+            const incursionDetected = otherAFList.some(p => p.isInsideRedZone);
+            const otherAFNames = otherAFList.map(p => p.name);
 
-            if (incursionDetected || highPriorityInAO) {
+            if (incursionDetected) {
                 statusUpdate = '\\n\\n🚨 **RED ALERT: Foreign Military Aircraft detected inside INDIAN AIRSPACE!**';
-            } else if (otherAFList.length > 0) {
+            } else if (otherAFNames.length > 0) {
                 statusUpdate = '\\n\\n⚠️ **WARNING: Foreign Military activity detected outside borders.**';
             }
 
             const report = '🛰️ **GMRP-IAF TACTICAL REPORT**\\n\\n🟢 **IAF:** ' + (iafList.length > 0 ? iafList.join(', ') : 'N/A') + 
                            '\\n🟡 **[U]:** ' + (uList.length > 0 ? uList.join(', ') : 'N/A') + 
-                           '\\n🔴 **Other Air Forces:** ' + (otherAFList.length > 0 ? otherAFList.map(p => p.name).join(', ') : 'N/A') + statusUpdate;
+                           '\\n🔴 **Other Air Forces:** ' + (otherAFNames.length > 0 ? otherAFNames.join(', ') : 'N/A') + statusUpdate;
             
             fs.writeFileSync('report.txt', report);
             await page.screenshot({ path: 'radar.png' });
