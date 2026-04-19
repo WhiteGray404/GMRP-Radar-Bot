@@ -32,51 +32,68 @@ jobs:
             
             await page.goto('https://geofs-live-radar.onrender.com', { waitUntil: 'networkidle2', timeout: 90000 });
             
-            // Wait for data stabilization
+            // 1. FORCE ZOOM: Move map to India and zoom in to increase coordinate precision
+            await page.evaluate(() => {
+              const el = document.querySelector('.leaflet-container');
+              const map = el._leaflet_map || Object.values(el).find(v => v._leaflet_map)._leaflet_map;
+              map.setView([22.5, 82.0], 5); 
+            });
+
+            // 2. WAIT: Give the radar 60 seconds to fetch all 800+ markers properly
             await new Promise(r => setTimeout(r, 60000)); 
 
             try { await page.click('.fa-moon'); } catch(e) {}
 
             const scanResult = await page.evaluate(() => {
-              const india = { latN: 37.5, latS: 6.5, lngW: 68.0, lngE: 97.5 };
-              const mapEl = document.querySelector('.leaflet-container');
-              const map = mapEl ? (mapEl._leaflet_map || Object.values(mapEl).find(v => v._leaflet_map)?._leaflet_map) : null;
+              const el = document.querySelector('.leaflet-container');
+              const map = el._leaflet_map || Object.values(el).find(v => v._leaflet_map)?._leaflet_map;
+              
+              // EXPANDED INDIAN BORDER BOX (Tactical Buffer)
+              const india = { latN: 38.5, latS: 6.0, lngW: 67.0, lngE: 98.5 };
 
               return Array.from(document.querySelectorAll('.leaflet-marker-icon')).map(m => {
                 const name = (m.title || m.innerText || m.getAttribute('aria-label') || '').replace(/[^a-zA-Z0-9()[\] _-]/g, '');
                 if (!name) return null;
 
-                let isOverIndia = false;
-                if (map && m._leaflet_pos) {
+                let lat = null, lng = null;
+
+                // Extraction Method A: Standard Leaflet memory
+                if (m._latlng) {
+                  lat = m._latlng.lat;
+                  lng = m._latlng.lng;
+                } 
+                // Extraction Method B: Pixel-to-GPS Projection (Fallback)
+                else if (map && m._leaflet_pos) {
                   try {
-                    const latLng = map.layerPointToLatLng(m._leaflet_pos);
-                    isOverIndia = (latLng.lat <= india.latN && latLng.lat >= india.latS) &&
-                                  (latLng.lng >= india.lngW && latLng.lng <= india.lngE);
+                    const ll = map.layerPointToLatLng(m._leaflet_pos);
+                    lat = ll.lat;
+                    lng = ll.lng;
                   } catch(e) {}
                 }
+
+                const isOverIndia = lat !== null && (lat <= india.latN && lat >= india.latS) && (lng >= india.lngW && lng <= india.lngE);
+                
                 return { name, isOverIndia };
               }).filter(x => x !== null);
             });
 
             const milTags = ['UKAF', 'USAF', 'RAAF', 'RIAF', 'RAF', 'RNZAF', 'UAEAF', 'BPYR', 'LUFT', 'AAF', 'CAEAF', 'CAE', 'RCAF', 'PAF', 'PAKISTAN'];
 
-            // 1. IAF (Friendly) - STRICTLY EXCLUDES RIAF
+            // 1. FRIENDLY IAF (Excluding RIAF)
             const iafList = scanResult.filter(p => {
                 const n = p.name.toUpperCase();
                 return n.includes('IAF') && !n.includes('RIAF');
             }).map(p => p.name);
             
-            // 2. Other Air Forces (Target List) - INCLUDES RIAF
+            // 2. OTHER AF (Including RIAF)
             const otherAFList = scanResult.filter(p => {
               const name = p.name.toUpperCase();
-              const isSpecificMil = milTags.some(tag => name.includes(tag));
-              const isAirforceKeyword = name.includes('AIRFORCE') || name.endsWith('AF') || name.includes(' AF');
+              const isMil = milTags.some(tag => name.includes(tag)) || name.includes('AIRFORCE') || name.endsWith('AF');
               const isFriendlyIAF = name.includes('IAF') && !name.includes('RIAF');
-              
-              return (isSpecificMil || isAirforceKeyword) && !isFriendlyIAF && !name.startsWith('EK');
+              return isMil && !isFriendlyIAF && !name.startsWith('EK');
             });
 
-            // 3. Unidentified
+            // 3. UNIDENTIFIED
             const uList = scanResult.filter(p => {
               const name = p.name.toUpperCase();
               const isFriendly = iafList.includes(p.name);
@@ -84,7 +101,7 @@ jobs:
               return name.includes('[U') && !isFriendly && !isOtherAF;
             }).map(p => p.name);
 
-            // 4. STATUS REPORTING
+            // 4. FINAL STATUS LOGIC
             let statusUpdate = '\\n\\n🔵 **STATUS:** All clear. No foreign military in sector.';
             const incursions = otherAFList.filter(p => p.isOverIndia).map(p => p.name);
             const otherAFNames = otherAFList.map(p => p.name);
