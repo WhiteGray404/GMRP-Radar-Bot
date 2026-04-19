@@ -31,11 +31,8 @@ jobs:
             
             await page.goto('https://geofs-live-radar.onrender.com', { waitUntil: 'networkidle2', timeout: 60000 });
             
-            // Strong Dark Mode Force
-            await page.addStyleTag({ content: 'html, body, #map, .leaflet-container { background: #000 !important; } .leaflet-tile-container img { filter: brightness(0.4) invert(1) contrast(3) hue-rotate(180deg) !important; }' });
-            
-            // Wait for planes to populate
-            await new Promise(r => setTimeout(r, 20000)); 
+            // Wait 25 seconds to ensure all player names load correctly
+            await new Promise(r => setTimeout(r, 25000)); 
 
             const names = await page.evaluate(() => {
               const found = [];
@@ -46,7 +43,6 @@ jobs:
               return found;
             });
 
-            // Filter for priorities with N/A fallback
             const iafList = names.filter(n => n.toUpperCase().includes('IAF'));
             const uList = names.filter(n => n.includes('[U]'));
             const otherList = names.filter(n => !n.toUpperCase().includes('IAF') && !n.includes('[U]')).slice(0, 10);
@@ -66,6 +62,9 @@ jobs:
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          REPORT_CLEAN=$(cat report.txt)
-          curl -H "Content-Type: application/json" -d "{\"content\": \"$REPORT_CLEAN\"}" $DISCORD_WEBHOOK
-          curl -F "file=@radar.png" $DISCORD_WEBHOOK
+          # Read report and send both image and text in one go
+          REPORT_BODY=$(cat report.txt)
+          curl -H "Content-Type: multipart/form-data" \
+               -F "file=@radar.png" \
+               -F "payload_json={\"content\": \"$REPORT_BODY\"}" \
+               $DISCORD_WEBHOOK
