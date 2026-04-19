@@ -19,7 +19,7 @@ jobs:
       - name: Install Puppeteer
         run: npm install puppeteer
 
-      - name: Take Screenshot and Generate Report
+      - name: Take Screenshot and Generate Tactical Report
         run: |
           node -e "
           const puppeteer = require('puppeteer');
@@ -30,7 +30,6 @@ jobs:
             await page.setViewport({ width: 1920, height: 1080 });
             await page.goto('https://geofs-live-radar.onrender.com', { waitUntil: 'networkidle2', timeout: 60000 });
             
-            // Wait 25 seconds for player data
             await new Promise(r => setTimeout(r, 25000)); 
 
             const names = await page.evaluate(() => {
@@ -40,11 +39,31 @@ jobs:
                 .map(t => t.replace(/[^a-zA-Z0-9()[\] ]/g, ''));
             });
 
-            const iaf = names.filter(n => n.toUpperCase().includes('IAF')).join(', ') || 'N/A';
-            const unidentified = names.filter(n => n.includes('[U]')).join(', ') || 'N/A';
-            const others = names.filter(n => !n.toUpperCase().includes('IAF') && !n.includes('[U]')).slice(0, 10).join(', ') || 'N/A';
+            // TARGET LIST
+            const milTags = ['USAF', 'RAAF', 'RIAF', 'RAF', 'RNZAF', 'UAEAF', 'BPYR', 'LUFT', 'AAF', 'CAEAF', 'CAE', 'RCAF'];
 
-            const report = '🛰️ **GMRP-IAF TACTICAL REPORT**\n\n🟢 **IAF:** ' + iaf + '\n🟡 **[U]:** ' + unidentified + '\n🔴 **Others:** ' + others;
+            // 1. IAF Priority
+            const iafList = names.filter(n => n.toUpperCase().includes('IAF'));
+            
+            // 2. Unidentified [U]
+            const uList = names.filter(n => n.includes('[U]'));
+            
+            // 3. Other Air Forces (Filtered by your specific list + any 'AF' suffix)
+            const otherAFList = names.filter(n => {
+              const name = n.toUpperCase();
+              const isSpecificMil = milTags.some(tag => name.includes(tag));
+              const endsInAF = name.endsWith('AF') || name.includes(' AF');
+              const isAlreadyListed = name.includes('IAF') || n.includes('[U]');
+              const isCivilian = name.startsWith('EK'); // Block Emirates/Civilian
+              
+              return (isSpecificMil || endsInAF) && !isAlreadyListed && !isCivilian;
+            });
+
+            const iaf = iafList.length > 0 ? iafList.join(', ') : 'N/A';
+            const unidentified = uList.length > 0 ? uList.join(', ') : 'N/A';
+            const otherAFs = otherAFList.length > 0 ? otherAFList.join(', ') : 'N/A';
+
+            const report = '🛰️ **GMRP-IAF TACTICAL REPORT**\\n\\n🟢 **IAF:** ' + iaf + '\\n🟡 **[U]:** ' + unidentified + '\\n🔴 **Other Air Forces:** ' + otherAFs;
             
             fs.writeFileSync('report.txt', report);
             await page.screenshot({ path: 'radar.png' });
@@ -55,12 +74,8 @@ jobs:
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          # 1. Send the text report first
-          # We use jq to properly escape the text for a clean JSON send
           REPORT_BODY=$(cat report.txt)
           curl -H "Content-Type: application/json" \
                -d "$(JSON_REPORT=\"$REPORT_BODY\" node -e 'console.log(JSON.stringify({content: process.env.JSON_REPORT}))')" \
                $DISCORD_WEBHOOK
-          
-          # 2. Send the image immediately after
           curl -F "file=@radar.png" $DISCORD_WEBHOOK
