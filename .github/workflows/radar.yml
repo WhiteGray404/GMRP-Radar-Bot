@@ -29,45 +29,56 @@ jobs:
             const browser = await puppeteer.launch({ args: ['--no-sandbox'] });
             const page = await browser.newPage();
             await page.setViewport({ width: 1920, height: 1080 });
+            
+            // Navigate to the radar URL
             await page.goto('https://geofs-live-radar.onrender.com', { waitUntil: 'networkidle2', timeout: 60000 });
             
-            // INCREASED WAIT TIME: Gives the radar 45 seconds to fetch all 800+ markers
+            // INCREASED WAIT TIME: 45 seconds ensures the radar finishes fetching all 800+ markers
             await new Promise(r => setTimeout(r, 45000)); 
 
             const names = await page.evaluate(() => {
-              // Enhanced marker detection: looks in title, inner text, and aria-labels
+              // Scrape markers from title, inner text, or aria-labels
               return Array.from(document.querySelectorAll('.leaflet-marker-icon'))
                 .map(m => m.title || m.innerText || m.getAttribute('aria-label') || '')
                 .filter(t => t.trim().length > 0)
+                // Sanitization: Allow alphanumeric, brackets, spaces, underscores, and dashes
                 .map(t => t.replace(/[^a-zA-Z0-9()[\] _-]/g, ''));
             });
 
-            // TARGET LIST (Added PAKISTAN_AIRFORCE to the tracking list)
-            const milTags = ['USAF', 'RAAF', 'RIAF', 'RAF', 'RNZAF', 'UAEAF', 'BPYR', 'LUFT', 'AAF', 'CAEAF', 'CAE', 'RCAF', 'PAKISTAN_AIRFORCE', '[UTP]'];
+            // TARGET LIST (Case-insensitive check will be applied below)
+            const milTags = ['USAF', 'RAAF', 'RIAF', 'RAF', 'RNZAF', 'UAEAF', 'BPYR', 'LUFT', 'AAF', 'CAEAF', 'CAE', 'RCAF', 'PAF', 'PAKISTAN'];
 
             // 1. IAF Priority
             const iafList = names.filter(n => n.toUpperCase().includes('IAF'));
             
-            // 2. Unidentified [U]
-            const uList = names.filter(n => n.includes('[U]') || n.includes('[UTP]'));
+            // 2. Unidentified [U] (Captures [U], [UTP], etc.)
+            const uList = names.filter(n => n.toUpperCase().includes('[U'));
             
-            // 3. Other Air Forces (Filtered by your list + any 'AF' or 'AIRFORCE' suffix)
+            // 3. Other Air Forces (Filter logic)
             const otherAFList = names.filter(n => {
               const name = n.toUpperCase();
+              
+              // Checks if the name contains any tag from our list (Case-Insensitive)
               const isSpecificMil = milTags.some(tag => name.includes(tag));
-              const isMilKeyword = name.endsWith('AF') || name.includes('AIRFORCE') || name.includes(' AF');
-              const isAlreadyListed = name.includes('IAF') || n.includes('[U]');
+              
+              // Checks for common military keywords
+              const isAirforceKeyword = name.includes('AIRFORCE') || name.endsWith('AF') || name.includes(' AF');
+              
+              // Exclude if already in IAF or [U] sections, or if it is an EK (Emirates) civilian
+              const isAlreadyListed = name.includes('IAF') || name.includes('[U');
               const isCivilian = name.startsWith('EK'); 
               
-              return (isSpecificMil || isMilKeyword) && !isAlreadyListed && !isCivilian;
+              return (isSpecificMil || isAirforceKeyword) && !isAlreadyListed && !isCivilian;
             });
 
+            // Format results for the Discord report
             const iaf = iafList.length > 0 ? iafList.join(', ') : 'N/A';
             const unidentified = uList.length > 0 ? uList.join(', ') : 'N/A';
             const otherAFs = otherAFList.length > 0 ? otherAFList.join(', ') : 'N/A';
 
             const report = '🛰️ **GMRP-IAF TACTICAL REPORT**\\n\\n🟢 **IAF:** ' + iaf + '\\n🟡 **[U]:** ' + unidentified + '\\n🔴 **Other Air Forces:** ' + otherAFs;
             
+            // Save the report text and take the final screenshot
             fs.writeFileSync('report.txt', report);
             await page.screenshot({ path: 'radar.png' });
             await browser.close();
