@@ -30,38 +30,39 @@ jobs:
             const page = await browser.newPage();
             await page.setViewport({ width: 1920, height: 1080 });
             
-            await page.goto('https://geofs-live-radar.onrender.com', { waitUntil: 'networkidle2', timeout: 60000 });
+            // 1. Navigate to Radar - URL already centered on India
+            await page.goto('https://geofs-live-radar.onrender.com/?lat=22.5&lon=82.0&z=5', { waitUntil: 'networkidle2', timeout: 90000 });
             
-            // 1. RADAR SYNC: Wait for the website to actually initialize the Leaflet map
-            await page.waitForFunction(() => {
-              const el = document.querySelector('.leaflet-container');
-              return el && (el._leaflet_map || Object.values(el).find(v => v._leaflet_map));
-            }, { timeout: 60000 });
+            // 2. Wait for aircraft markers to appear (The actual plane icons)
+            await page.waitForSelector('.leaflet-marker-icon', { timeout: 90000 });
 
-            // 2. FORCE POSITION: Set view to India
-            await page.evaluate(() => {
-              const el = document.querySelector('.leaflet-container');
-              const map = el._leaflet_map || Object.values(el).find(v => v._leaflet_map)._leaflet_map;
-              map.setView([22.5, 82.0], 5);
-            });
+            // 3. Give markers a moment to settle
+            await new Promise(r => setTimeout(r, 15000)); 
 
-            // Wait 45 seconds for aircraft markers to populate
-            await new Promise(r => setTimeout(r, 45000)); 
-
+            // Tactical Black Map
             try { await page.click('.fa-moon'); } catch(e) {}
 
             const scanResult = await page.evaluate(() => {
-              const el = document.querySelector('.leaflet-container');
-              const map = el._leaflet_map || Object.values(el).find(v => v._leaflet_map)._leaflet_map;
+              // India GPS Bounding Box
               const india = { latN: 37.5, latS: 6.5, lngW: 68.0, lngE: 97.5 };
 
               return Array.from(document.querySelectorAll('.leaflet-marker-icon')).map(m => {
                 const name = (m.title || m.innerText || m.getAttribute('aria-label') || '').replace(/[^a-zA-Z0-9()[\] _-]/g, '');
                 
-                // Safety check for marker position
-                if (!m._leaflet_pos) return { name: 'Unknown', isOverIndia: false };
+                // ACCESSING GPS DIRECTLY FROM MARKER: This is the 'Magic' fix
+                // Leaflet stores coordinates inside the marker object itself
+                let latLng = { lat: 0, lng: 0 };
+                try {
+                  // Find the internal Leaflet properties
+                  const key = Object.keys(m).find(k => k.startsWith('__reactFiber') || k.startsWith('_leaflet_'));
+                  const internal = m[key] || m;
+                  // Try various common Leaflet coordinate paths
+                  const coords = m._latlng || (internal.return && internal.return.memoizedProps && internal.return.memoizedProps.position);
+                  if (coords) {
+                    latLng = { lat: coords.lat, lng: coords.lng };
+                  }
+                } catch(e) {}
                 
-                const latLng = map.layerPointToLatLng(m._leaflet_pos);
                 const isOverIndia = (latLng.lat <= india.latN && latLng.lat >= india.latS) &&
                                     (latLng.lng >= india.lngW && latLng.lng <= india.lngE);
                 
@@ -71,7 +72,7 @@ jobs:
 
             const milTags = ['UKAF', 'USAF', 'RAAF', 'RIAF', 'RAF', 'RNZAF', 'UAEAF', 'BPYR', 'LUFT', 'AAF', 'CAEAF', 'CAE', 'RCAF', 'PAF', 'PAKISTAN'];
 
-            // 3. INTELLIGENCE CATEGORIZATION
+            // 4. INTELLIGENCE CATEGORIZATION
             const iafList = scanResult.filter(p => p.name.toUpperCase().includes('IAF')).map(p => p.name);
             
             const otherAFList = scanResult.filter(p => {
@@ -86,12 +87,13 @@ jobs:
               return name.includes('[U') && !iafList.includes(p.name) && !otherAFList.some(o => o.name === p.name);
             }).map(p => p.name);
 
-            // 4. STATUS REPORTING
+            // 5. STATUS REPORTING
             let statusUpdate = '\\n\\n🔵 **STATUS:** All clear. No foreign military in sector.';
             const incursion = otherAFList.filter(p => p.isOverIndia);
             const otherAFNames = otherAFList.map(p => p.name);
 
             if (incursion.length > 0) {
+              // RED ALERT TRIGGER: Any non-IAF military inside the GPS box
               statusUpdate = '\\n\\n🚨 **RED ALERT: Foreign Military Aircraft detected inside INDIAN AIRSPACE!**\\n**Targets:** ' + incursion.map(i => i.name).join(', ');
             } else if (otherAFNames.length > 0) {
               statusUpdate = '\\n\\n⚠️ **WARNING: Foreign Military activity detected outside borders.**';
