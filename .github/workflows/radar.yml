@@ -1,7 +1,7 @@
 name: Update Radar Screenshot
 on:
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '*/8 * * * *'
   workflow_dispatch:
 
 jobs:
