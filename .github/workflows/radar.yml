@@ -19,13 +19,11 @@ jobs:
       - name: Install Puppeteer
         run: npm install puppeteer
 
-      - name: Take Screenshot and Post
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+      - name: Take Screenshot and Generate Report
         run: |
           node -e "
           const puppeteer = require('puppeteer');
-          const { execSync } = require('child_process');
+          const fs = require('fs');
           (async () => {
             const browser = await puppeteer.launch({ args: ['--no-sandbox'] });
             const page = await browser.newPage();
@@ -47,11 +45,19 @@ jobs:
             const unidentified = names.filter(n => n.includes('[U]')).join(', ') || 'Clear';
             const others = names.slice(0, 5).join(', ') || 'None';
 
-            const report = '🛰️ **GMRP-IAF TACTICAL REPORT**\\n\\n🟢 **IAF:** ' + iaf + '\\n🟡 **[U]:** ' + unidentified + '\\n🔴 **Others:** ' + others;
+            const report = '🛰️ **GMRP-IAF TACTICAL REPORT**\n\n🟢 **IAF:** ' + iaf + '\n🟡 **[U]:** ' + unidentified + '\n🔴 **Others:** ' + others;
             
+            fs.writeFileSync('report.txt', report);
             await page.screenshot({ path: 'radar.png' });
             await browser.close();
-
-            const payload = JSON.stringify({ content: report });
-            execSync(\`curl -X POST -F \"file=@radar.png\" -F \"payload_json=\${payload}\" \${process.env.DISCORD_WEBHOOK}\`);
           })();"
+
+      - name: Send to Discord
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          REPORT_BODY=$(cat report.txt)
+          curl -X POST \
+            -F "file=@radar.png" \
+            -F "payload_json={\"content\": \"$REPORT_BODY\n\n🔗 **Radar Link:** https://geofs-live-radar.onrender.com\"}" \
+            $DISCORD_WEBHOOK
