@@ -66,5 +66,8 @@ jobs:
 
       - name: Send to Discord
         run: |
-          REPORT_TEXT=$(cat report.txt)
-          curl -X POST -F "file=@radar.png" -F "payload_json={\"content\": \"$REPORT_TEXT \n\n🔗 Live Link: https://geofs-live-radar.onrender.com\"}" ${{ secrets.DISCORD_WEBHOOK }}
+          REPORT_CONTENT=$(cat report.txt)
+          curl -H "Content-Type: multipart/form-data" \
+               -F "file=@radar.png" \
+               -F "payload_json={\"content\": \"$REPORT_CONTENT \n\n🔗 Live Link: https://geofs-live-radar.onrender.com\"}" \
+               ${{ secrets.DISCORD_WEBHOOK }}
