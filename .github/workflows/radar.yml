@@ -30,61 +30,58 @@ jobs:
             const page = await browser.newPage();
             await page.setViewport({ width: 1920, height: 1080 });
             
-            // 1. Load the radar
             await page.goto('https://geofs-live-radar.onrender.com', { waitUntil: 'networkidle2', timeout: 90000 });
             
-            // 2. Wait for the data to stabilize (60 seconds for 800+ aircraft)
+            // Wait for data stabilization
             await new Promise(r => setTimeout(r, 60000)); 
 
             try { await page.click('.fa-moon'); } catch(e) {}
 
             const scanResult = await page.evaluate(() => {
-              // --- INTERNAL GPS SCANNER ---
               const india = { latN: 37.5, latS: 6.5, lngW: 68.0, lngE: 97.5 };
-              const markers = document.querySelectorAll('.leaflet-marker-icon');
-              const results = [];
-
-              // Attempt to find the Map Object safely
               const mapEl = document.querySelector('.leaflet-container');
               const map = mapEl ? (mapEl._leaflet_map || Object.values(mapEl).find(v => v._leaflet_map)?._leaflet_map) : null;
 
-              markers.forEach(m => {
+              return Array.from(document.querySelectorAll('.leaflet-marker-icon')).map(m => {
                 const name = (m.title || m.innerText || m.getAttribute('aria-label') || '').replace(/[^a-zA-Z0-9()[\] _-]/g, '');
-                if (!name) return;
+                if (!name) return null;
 
                 let isOverIndia = false;
                 if (map && m._leaflet_pos) {
                   try {
-                    // Convert marker pixel position to real world GPS
                     const latLng = map.layerPointToLatLng(m._leaflet_pos);
                     isOverIndia = (latLng.lat <= india.latN && latLng.lat >= india.latS) &&
                                   (latLng.lng >= india.lngW && latLng.lng <= india.lngE);
                   } catch(e) {}
                 }
-                results.push({ name, isOverIndia });
-              });
-              return results;
+                return { name, isOverIndia };
+              }).filter(x => x !== null);
             });
 
             const milTags = ['UKAF', 'USAF', 'RAAF', 'RIAF', 'RAF', 'RNZAF', 'UAEAF', 'BPYR', 'LUFT', 'AAF', 'CAEAF', 'CAE', 'RCAF', 'PAF', 'PAKISTAN'];
 
-            // 1. IAF (Friendly - Green)
-            const iafList = scanResult.filter(p => p.name.toUpperCase().includes('IAF')).map(p => p.name);
+            // 1. IAF (Friendly) - STRICTLY EXCLUDES RIAF
+            const iafList = scanResult.filter(p => {
+                const n = p.name.toUpperCase();
+                return n.includes('IAF') && !n.includes('RIAF');
+            }).map(p => p.name);
             
-            // 2. Other Air Forces (Red list - EXCLUDES Friendly IAF)
+            // 2. Other Air Forces (Target List) - INCLUDES RIAF
             const otherAFList = scanResult.filter(p => {
               const name = p.name.toUpperCase();
-              const isMil = milTags.some(tag => name.includes(tag)) || name.includes('AIRFORCE') || name.endsWith('AF');
-              const isIAF = name.includes('IAF'); 
-              return isMil && !isIAF && !name.startsWith('EK');
+              const isSpecificMil = milTags.some(tag => name.includes(tag));
+              const isAirforceKeyword = name.includes('AIRFORCE') || name.endsWith('AF') || name.includes(' AF');
+              const isFriendlyIAF = name.includes('IAF') && !name.includes('RIAF');
+              
+              return (isSpecificMil || isAirforceKeyword) && !isFriendlyIAF && !name.startsWith('EK');
             });
 
-            // 3. Unidentified (Yellow list)
+            // 3. Unidentified
             const uList = scanResult.filter(p => {
               const name = p.name.toUpperCase();
-              const isIAF = name.includes('IAF');
+              const isFriendly = iafList.includes(p.name);
               const isOtherAF = otherAFList.some(o => o.name === p.name);
-              return name.includes('[U') && !isIAF && !isOtherAF;
+              return name.includes('[U') && !isFriendly && !isOtherAF;
             }).map(p => p.name);
 
             // 4. STATUS REPORTING
