@@ -46,13 +46,13 @@ jobs:
             });
 
             // TARGET LIST (Case-insensitive check will be applied below)
-            const milTags = ['USAF', 'RAAF', 'RIAF', 'RAF', 'RNZAF', 'UAEAF', 'BPYR', 'LUFT', 'AAF', 'CAEAF', 'CAE', 'RCAF', 'PAF', 'PAKISTAN'];
+            const milTags = ['USAF','usaf', 'RAAF', 'raaf', 'RIAF','riaf', 'RAF', 'raf', 'RNZAF','rnzaf', 'UAEAF', 'uaeaf', 'BPYR', 'bpyr', 'LUFT', 'luft', 'AAF','aaf', 'CAEAF','caeaf', 'CAE','cae', 'RCAF','rcaf', 'PAF','paf', 'PAKISTAN'];
 
             // 1. IAF Priority
             const iafList = names.filter(n => n.toUpperCase().includes('IAF'));
             
             // 2. Unidentified [U] (Captures [U], [UTP], etc.)
-            const uList = names.filter(n => n.toUpperCase().includes('[U'));
+            const uList = names.filter(n => n.toUpperCase().includes('[U]'));
             
             // 3. Other Air Forces (Filter logic)
             const otherAFList = names.filter(n => {
@@ -65,7 +65,7 @@ jobs:
               const isAirforceKeyword = name.includes('AIRFORCE') || name.endsWith('AF') || name.includes(' AF');
               
               // Exclude if already in IAF or [U] sections, or if it is an EK (Emirates) civilian
-              const isAlreadyListed = name.includes('IAF') || name.includes('[U');
+              const isAlreadyListed = name.includes('IAF') || name.includes('[U]');
               const isCivilian = name.startsWith('EK'); 
               
               return (isSpecificMil || isAirforceKeyword) && !isAlreadyListed && !isCivilian;
