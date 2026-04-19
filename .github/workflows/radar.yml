@@ -34,6 +34,9 @@ jobs:
             // Wait 45 seconds to ensure all markers fetch
             await new Promise(r => setTimeout(r, 45000)); 
 
+            // TACTICAL BLACK: Clicks the moon icon for Dark Mode
+            try { await page.click('.fa-moon'); } catch(e) {}
+
             const names = await page.evaluate(() => {
               return Array.from(document.querySelectorAll('.leaflet-marker-icon'))
                 .map(m => m.title || m.innerText || m.getAttribute('aria-label') || '')
@@ -41,26 +44,35 @@ jobs:
                 .map(t => t.replace(/[^a-zA-Z0-9()[\] _-]/g, ''));
             });
 
-           // TARGET LIST (Case-insensitive check will be applied below)
-            const milTags = ['UKAF', 'ukaf', 'USAF','usaf', 'RAAF', 'raaf', 'RIAF','riaf', 'RAF', 'raf', 'RNZAF','rnzaf', 'UAEAF', 'uaeaf', 'BPYR', 'bpyr', 'LUFT', 'luft', 'AAF','aaf', 'CAEAF','caeaf', 'CAE','cae', 'RCAF','rcaf', 'PAF','paf', 'PAKISTAN'];
+            // TARGET LIST (Cleaned up - UPPERCASE only as logic handles conversion)
+            const milTags = ['UKAF', 'USAF', 'RAAF', 'RIAF', 'RAF', 'RNZAF', 'UAEAF', 'BPYR', 'LUFT', 'AAF', 'CAEAF', 'CAE', 'RCAF', 'PAF', 'PAKISTAN'];
 
+            // 1. IAF Priority (Green)
             const iafList = names.filter(n => n.toUpperCase().includes('IAF'));
-            const uList = names.filter(n => n.toUpperCase().includes('[U'));
             
+            // 2. Other Air Forces (Red) - Check military tags FIRST
             const otherAFList = names.filter(n => {
               const name = n.toUpperCase();
               const isSpecificMil = milTags.some(tag => name.includes(tag));
               const isAirforceKeyword = name.includes('AIRFORCE') || name.endsWith('AF') || name.includes(' AF');
-              const isAlreadyListed = name.includes('IAF') || name.includes('[U');
+              const isIAF = name.includes('IAF');
               const isCivilian = name.startsWith('EK'); 
-              return (isSpecificMil || isAirforceKeyword) && !isAlreadyListed && !isCivilian;
+              return (isSpecificMil || isAirforceKeyword) && !isIAF && !isCivilian;
+            });
+
+            // 3. Unidentified [U] (Yellow) - Catch remaining [U] tags that aren't military
+            const uList = names.filter(n => {
+              const name = n.toUpperCase();
+              const hasUTag = name.includes('[U');
+              const alreadyCaught = iafList.includes(n) || otherAFList.includes(n);
+              return hasUTag && !alreadyCaught;
             });
 
             const iaf = iafList.length > 0 ? iafList.join(', ') : 'N/A';
             const unidentified = uList.length > 0 ? uList.join(', ') : 'N/A';
             const otherAFs = otherAFList.length > 0 ? otherAFList.join(', ') : 'N/A';
 
-            // --- NEW STATUS LOG LOGIC ---
+            // --- STATUS LOG LOGIC ---
             let statusUpdate = '\\n\\n🔵 **STATUS:** All clear. No high-priority threats in sector.';
             const highPriorityFound = otherAFList.some(n => {
                 const name = n.toUpperCase();
@@ -70,7 +82,6 @@ jobs:
             if (highPriorityFound) {
                 statusUpdate = '\\n\\n⚠️ **WARNING: High-Priority Targets detected in AO.**';
             }
-            // ----------------------------
 
             const report = '🛰️ **GMRP-IAF TACTICAL REPORT**\\n\\n🟢 **IAF:** ' + iaf + '\\n🟡 **[U]:** ' + unidentified + '\\n🔴 **Other Air Forces:** ' + otherAFs + statusUpdate;
             
