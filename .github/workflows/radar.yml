@@ -30,7 +30,6 @@ jobs:
             await page.setViewport({ width: 1920, height: 1080 });
             await page.goto('https://geofs-live-radar.onrender.com', { waitUntil: 'networkidle2', timeout: 60000 });
             
-            // Tactical Black Map
             await page.addStyleTag({ content: 'body, .leaflet-container { background: #000 !important; } .leaflet-tile-container img { filter: brightness(0.4) invert(1) contrast(3) hue-rotate(180deg) saturate(0.3) !important; }' });
             
             await new Promise(r => setTimeout(r, 15000)); 
@@ -45,7 +44,6 @@ jobs:
             const unidentified = names.filter(n => n.includes('[U]')).join(', ') || 'Clear';
             const others = names.slice(0, 5).join(', ') || 'None';
 
-            // Clean the text to avoid breaking JSON
             const report = '🛰️ **GMRP-IAF TACTICAL REPORT**\n\n🟢 **IAF:** ' + iaf + '\n🟡 **[U]:** ' + unidentified + '\n🔴 **Others:** ' + others;
             
             fs.writeFileSync('report.txt', report);
@@ -57,10 +55,10 @@ jobs:
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          # We use jq to safely format the text for Discord
-          REPORT_BODY=$(cat report.txt)
+          # 1. Send the report text first
+          curl -H "Content-Type: application/json" \
+               -d "{\"content\": \"$(cat report.txt | sed ':a;N;$!ba;s/\n/\\n/g')\"}" \
+               $DISCORD_WEBHOOK
           
-          curl -H "Content-Type: multipart/form-data" \
-            -F "file=@radar.png" \
-            -F "payload_json={\"content\": \"$REPORT_BODY\"}" \
-            $DISCORD_WEBHOOK
+          # 2. Send the image second
+          curl -F "file=@radar.png" $DISCORD_WEBHOOK
