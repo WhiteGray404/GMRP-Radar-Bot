@@ -19,7 +19,7 @@ jobs:
       - name: Install Puppeteer
         run: npm install puppeteer
 
-      - name: Take Screenshot and Post to Discord
+      - name: Take Screenshot and Post
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
@@ -27,42 +27,31 @@ jobs:
           const puppeteer = require('puppeteer');
           const { execSync } = require('child_process');
           (async () => {
-            try {
-              const browser = await puppeteer.launch({ args: ['--no-sandbox'] });
-              const page = await browser.newPage();
-              await page.setViewport({ width: 1920, height: 1080 });
-              await page.goto('https://geofs-live-radar.onrender.com', { waitUntil: 'networkidle2', timeout: 60000 });
-              
-              // Tactical Dark Mode
-              await page.addStyleTag({ content: 'body, .leaflet-container { background: #000 !important; } .leaflet-tile-container img { filter: brightness(0.4) invert(1) contrast(3) hue-rotate(180deg) saturate(0.3) !important; } .leaflet-tile { background: #000 !important; }' });
-              
-              await new Promise(r => setTimeout(r, 15000)); 
+            const browser = await puppeteer.launch({ args: ['--no-sandbox'] });
+            const page = await browser.newPage();
+            await page.setViewport({ width: 1920, height: 1080 });
+            await page.goto('https://geofs-live-radar.onrender.com', { waitUntil: 'networkidle2', timeout: 60000 });
+            
+            // Tactical Black Map
+            await page.addStyleTag({ content: 'body, .leaflet-container { background: #000 !important; } .leaflet-tile-container img { filter: brightness(0.4) invert(1) contrast(3) hue-rotate(180deg) saturate(0.3) !important; }' });
+            
+            await new Promise(r => setTimeout(r, 15000)); 
 
-              // Scan for callsigns
-              const names = await page.evaluate(() => {
-                const list = [];
-                document.querySelectorAll('.leaflet-marker-icon').forEach(m => {
-                  if (m.title) list.push(m.title.replace(/[^a-zA-Z0-9()[\] ]/g, ''));
-                });
-                return list;
-              });
+            const names = await page.evaluate(() => {
+              return Array.from(document.querySelectorAll('.leaflet-marker-icon'))
+                .map(m => m.title || '')
+                .filter(t => t.length > 0);
+            });
 
-              // Organize Priorities
-              const iaf = names.filter(n => n.toUpperCase().includes('IAF')).join(', ') || 'None Detected';
-              const unidentified = names.filter(n => n.includes('[U]')).join(', ') || 'Clear';
-              const others = names.slice(0, 8).join(', ') || 'None';
+            const iaf = names.filter(n => n.toUpperCase().includes('IAF')).join(', ') || 'None';
+            const unidentified = names.filter(n => n.includes('[U]')).join(', ') || 'Clear';
+            const others = names.slice(0, 5).join(', ') || 'None';
 
-              const report = '🛰️ **GMRP-IAF TACTICAL REPORT**\n\n🟢 **IAF:** ' + iaf + '\n🟡 **[U]:** ' + unidentified + '\n🔴 **Others:** ' + others + '\n\n🔗 **Radar:** https://geofs-live-radar.onrender.com';
-              
-              await page.screenshot({ path: 'radar.png' });
-              await browser.close();
+            const report = '🛰️ **GMRP-IAF TACTICAL REPORT**\\n\\n🟢 **IAF:** ' + iaf + '\\n🟡 **[U]:** ' + unidentified + '\\n🔴 **Others:** ' + others;
+            
+            await page.screenshot({ path: 'radar.png' });
+            await browser.close();
 
-              // SEND EVERYTHING TO DISCORD DIRECTLY FROM NODE
-              const curlCmd = \`curl -X POST -F \"file=@radar.png\" -F \"payload_json={\\\"content\\\": \\\"\${report.replace(/\\n/g, '\\\\n')}\\\"}\" \${process.env.DISCORD_WEBHOOK}\`;
-              execSync(curlCmd);
-
-            } catch (err) {
-              console.error(err);
-              process.exit(1);
-            }
+            const payload = JSON.stringify({ content: report });
+            execSync(\`curl -X POST -F \"file=@radar.png\" -F \"payload_json=\${payload}\" \${process.env.DISCORD_WEBHOOK}\`);
           })();"
