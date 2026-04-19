@@ -31,17 +31,19 @@ jobs:
             await page.setViewport({ width: 1920, height: 1080 });
             await page.goto('https://geofs-live-radar.onrender.com', { waitUntil: 'networkidle2', timeout: 60000 });
             
-            await new Promise(r => setTimeout(r, 25000)); 
+            // INCREASED WAIT TIME: Gives the radar 45 seconds to fetch all 800+ markers
+            await new Promise(r => setTimeout(r, 45000)); 
 
             const names = await page.evaluate(() => {
+              // Enhanced marker detection: looks in title, inner text, and aria-labels
               return Array.from(document.querySelectorAll('.leaflet-marker-icon'))
-                .map(m => m.title || m.innerText || '')
-                .filter(t => t.length > 0)
-                .map(t => t.replace(/[^a-zA-Z0-9()[\] ]/g, ''));
+                .map(m => m.title || m.innerText || m.getAttribute('aria-label') || '')
+                .filter(t => t.trim().length > 0)
+                .map(t => t.replace(/[^a-zA-Z0-9()[\] _-]/g, ''));
             });
 
-            // TARGET LIST
-            const milTags = ['USAF', 'RAAF', 'RIAF', 'RAF', 'RNZAF', 'UAEAF', 'BPYR', 'LUFT', 'AAF', 'CAEAF', 'CAE', 'RCAF'];
+            // TARGET LIST (Added PAKISTAN_AIRFORCE to the tracking list)
+            const milTags = ['USAF', 'RAAF', 'RIAF', 'RAF', 'RNZAF', 'UAEAF', 'BPYR', 'LUFT', 'AAF', 'CAEAF', 'CAE', 'RCAF', 'PAKISTAN_AIRFORCE'];
 
             // 1. IAF Priority
             const iafList = names.filter(n => n.toUpperCase().includes('IAF'));
@@ -49,15 +51,15 @@ jobs:
             // 2. Unidentified [U]
             const uList = names.filter(n => n.includes('[U]'));
             
-            // 3. Other Air Forces (Filtered by your specific list + any 'AF' suffix)
+            // 3. Other Air Forces (Filtered by your list + any 'AF' or 'AIRFORCE' suffix)
             const otherAFList = names.filter(n => {
               const name = n.toUpperCase();
               const isSpecificMil = milTags.some(tag => name.includes(tag));
-              const endsInAF = name.endsWith('AF') || name.includes(' AF');
+              const isMilKeyword = name.endsWith('AF') || name.includes('AIRFORCE') || name.includes(' AF');
               const isAlreadyListed = name.includes('IAF') || n.includes('[U]');
-              const isCivilian = name.startsWith('EK'); // Block Emirates/Civilian
+              const isCivilian = name.startsWith('EK'); 
               
-              return (isSpecificMil || endsInAF) && !isAlreadyListed && !isCivilian;
+              return (isSpecificMil || isMilKeyword) && !isAlreadyListed && !isCivilian;
             });
 
             const iaf = iafList.length > 0 ? iafList.join(', ') : 'N/A';
