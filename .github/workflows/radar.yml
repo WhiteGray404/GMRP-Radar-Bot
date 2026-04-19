@@ -28,62 +28,45 @@ jobs:
           (async () => {
             const browser = await puppeteer.launch({ args: ['--no-sandbox'] });
             const page = await browser.newPage();
+            // 1. Set a fixed tactical resolution
             await page.setViewport({ width: 1920, height: 1080 });
             
-            // 1. Load Radar
-            await page.goto('https://geofs-live-radar.onrender.com', { waitUntil: 'networkidle2', timeout: 90000 });
+            // 2. Load Radar centered on India with Zoom 5 (URL parameters)
+            // lat=21.5, lon=81.0, z=5 centers India perfectly on a 1920x1080 screen
+            await page.goto('https://geofs-live-radar.onrender.com/?lat=21.5&lon=81.0&z=5', { waitUntil: 'networkidle2', timeout: 90000 });
             
-            // 2. FORCE SYNC: Wait for the map to be ready and force it to zoom on India
-            await page.waitForFunction(() => {
-              const el = document.querySelector('.leaflet-container');
-              return el && (el._leaflet_map || Object.values(el).find(v => v._leaflet_map));
-            }, { timeout: 60000 });
+            // 3. Wait for aircraft markers to appear
+            await page.waitForSelector('.leaflet-marker-icon', { timeout: 60000 });
+            await new Promise(r => setTimeout(r, 20000)); // Short buffer for markers to finish moving
 
-            await page.evaluate(() => {
-              const el = document.querySelector('.leaflet-container');
-              const map = el._leaflet_map || Object.values(el).find(v => v._leaflet_map)._leaflet_map;
-              map.setView([22.5, 82.0], 5); // Hard-lock on India
-            });
-
-            // Wait 45s for all 800+ aircraft to fetch and render
-            await new Promise(r => setTimeout(r, 45000)); 
-
+            // Tactical Black Map
             try { await page.click('.fa-moon'); } catch(e) {}
 
             const scanResult = await page.evaluate(() => {
-              const el = document.querySelector('.leaflet-container');
-              const map = el._leaflet_map || Object.values(el).find(v => v._leaflet_map)._leaflet_map;
-              
-              // TIGHTER INDIAN BORDER BOX
-              const india = { latN: 37.5, latS: 6.5, lngW: 68.0, lngE: 97.5 };
+              const all = [];
+              // INDIA PIXEL GEOFENCE (Calibrated for 1920x1080 at Zoom 5)
+              // These pixels cover the Indian mainland from Kashmir to Kanyakumari
+              const indiaBox = { xMin: 720, xMax: 1250, yMin: 180, yMax: 880 };
 
-              return Array.from(document.querySelectorAll('.leaflet-marker-icon')).map(m => {
+              document.querySelectorAll('.leaflet-marker-icon').forEach(m => {
                 const name = (m.title || m.innerText || m.getAttribute('aria-label') || '').replace(/[^a-zA-Z0-9()[\] _-]/g, '');
+                if (!name) return;
+
+                const rect = m.getBoundingClientRect();
+                const isOverIndia = (rect.left > indiaBox.xMin && rect.left < indiaBox.xMax) &&
+                                    (rect.top > indiaBox.yMin && rect.top < indiaBox.yMax);
                 
-                // PRECISION GPS EXTRACTION: Uses the map projector to get exact coordinates
-                let isOverIndia = false;
-                try {
-                   // Get the pixel position relative to the map container
-                   const rect = m.getBoundingClientRect();
-                   const containerRect = el.getBoundingClientRect();
-                   const x = rect.left - containerRect.left + (rect.width / 2);
-                   const y = rect.top - containerRect.top + (rect.height / 2);
-                   
-                   // Project pixels back into GPS Lat/Lng
-                   const latLng = map.containerPointToLatLng([x, y]);
-                   
-                   isOverIndia = (latLng.lat <= india.latN && latLng.lat >= india.latS) &&
-                                 (latLng.lng >= india.lngW && latLng.lng <= india.lngE);
-                } catch(e) {}
-                
-                return { name, isOverIndia };
+                all.push({ name, isOverIndia });
               });
+              return all;
             });
 
             const milTags = ['UKAF', 'USAF', 'RAAF', 'RIAF', 'RAF', 'RNZAF', 'UAEAF', 'BPYR', 'LUFT', 'AAF', 'CAEAF', 'CAE', 'RCAF', 'PAF', 'PAKISTAN'];
 
+            // 4. Intelligence Categorization
             const iafList = scanResult.filter(p => p.name.toUpperCase().includes('IAF')).map(p => p.name);
             
+            // Other AFs - STRICTLY EXCLUDE IAF
             const otherAFList = scanResult.filter(p => {
               const name = p.name.toUpperCase();
               const isMil = milTags.some(tag => name.includes(tag)) || name.includes('AIRFORCE') || name.endsWith('AF');
@@ -96,8 +79,10 @@ jobs:
               return name.includes('[U') && !iafList.includes(p.name) && !otherAFList.some(o => o.name === p.name);
             }).map(p => p.name);
 
-            // 4. STATUS REPORTING
+            // 5. Status Logic (Red Alert for any AF in the India Box)
             let statusUpdate = '\\n\\n🔵 **STATUS:** All clear. No foreign military in sector.';
+            
+            // Any foreign mil plane inside the pixel box triggers the Red Alert
             const incursions = otherAFList.filter(p => p.isOverIndia).map(p => p.name);
             const otherAFNames = otherAFList.map(p => p.name);
 
@@ -115,7 +100,7 @@ jobs:
             await page.screenshot({ path: 'radar.png' });
             await browser.close();
           })();"
-
+          
       - name: Send to Discord
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
