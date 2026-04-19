@@ -26,13 +26,19 @@ jobs:
           (async () => {
             const browser = await puppeteer.launch({ args: ['--no-sandbox'] });
             const page = await browser.newPage();
-            await page.setViewport({ width: 1920, height: 1080 });
-            await page.goto('https://geofs-live-radar.onrender.com', { waitUntil: 'networkidle2' });
+           await page.goto('https://geofs-live-radar.onrender.com', { waitUntil: 'networkidle2' });
+            
+            // This part finds the Theme button and clicks it to make it black
+            try {
+                const themeButton = await page.$('.fa-sun, .fa-moon, [title*="theme"]');
+                if (themeButton) await themeButton.click();
+            } catch (e) {
+                console.log("Could not find theme button, trying CSS force...");
+            }
+
+            // Force the background to black just in case
+            await page.addStyleTag({ content: 'body, .leaflet-container { background: #000 !important; }' });
+            
             await new Promise(r => setTimeout(r, 10000)); 
             await page.screenshot({ path: 'radar.png' });
             await browser.close();
-          })();"
-
-      - name: Send to Discord
-        run: |
-          curl -X POST -F "file=@radar.png" -F "payload_json={\"content\": \"🛰️ **GMRP-IAF LIVE RADAR UPDATE** \nClick here to interact: https://geofs-live-radar.onrender.com\"}" ${{ secrets.DISCORD_WEBHOOK }}
