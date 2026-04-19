@@ -31,8 +31,7 @@ jobs:
               await page.goto('https://geofs-live-radar.onrender.com', { waitUntil: 'networkidle2', timeout: 60000 });
               
               // Force Dark Mode via CSS immediately
-              await page.addStyleTag({ content: 'body, .leaflet-container { background: #000 !important; filter: invert(100%) hue-rotate(180deg); } img.leaflet-tile { filter: brightness(0.6) invert(100%) hue-rotate(180deg) !important; }' });
-              
+             await page.addStyleTag({ content: 'body, .leaflet-container { background: #000 !important; } .leaflet-tile-container img { filter: brightness(0.4) invert(1) contrast(3) hue-rotate(180deg) saturate(0.3) !important; } .leaflet-tile { background: #000 !important; }' });
               await new Promise(r => setTimeout(r, 15000)); 
               await page.screenshot({ path: 'radar.png' });
               await browser.close();
