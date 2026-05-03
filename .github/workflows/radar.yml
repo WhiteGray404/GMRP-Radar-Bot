@@ -28,33 +28,22 @@ jobs:
           (async () => {
             const browser = await puppeteer.launch({ args: ['--no-sandbox'] });
             const page = await browser.newPage();
-            // 1. Force the high-res tactical viewport
             await page.setViewport({ width: 1920, height: 1080 });
             
             await page.goto('https://geofs-live-radar.onrender.com', { waitUntil: 'networkidle2', timeout: 90000 });
             
-            // 2. Wait for the theater of operations to load
+            // Wait for markers
             await new Promise(r => setTimeout(r, 60000)); 
 
-            // Force Dark Mode for clarity
             try { await page.click('.fa-moon'); } catch(e) {}
 
             const scanResult = await page.evaluate(() => {
-              // --- WORLD MAP CALIBRATION (1920x1080) ---
-              // These pixels are strictly calibrated to the Indian landmass on the World View
-              // It effectively excludes the Middle East (UAE) and Europe.
-              const indiaBox = { 
-                xMin: 1135, // West Border (Gujarat area)
-                xMax: 1225, // East Border (Bengal/Assam area)
-                yMin: 440,  // North Border (Kashmir area)
-                yMax: 590   // South Border (Kanyakumari area)
-              };
+              const indiaBox = { xMin: 1135, xMax: 1225, yMin: 440, yMax: 590 };
 
               return Array.from(document.querySelectorAll('.leaflet-marker-icon')).map(m => {
                 const name = (m.title || m.innerText || m.getAttribute('aria-label') || '').replace(/[^a-zA-Z0-9()[\] _-]/g, '');
                 if (!name) return null;
 
-                // Physical Screen Position check
                 const rect = m.getBoundingClientRect();
                 const isOverIndia = (rect.left > indiaBox.xMin && rect.left < indiaBox.xMax) &&
                                     (rect.top > indiaBox.yMin && rect.top < indiaBox.yMax);
@@ -63,43 +52,82 @@ jobs:
               }).filter(x => x !== null);
             });
 
-            const milTags = ['UKAF', 'USAF', 'RAAF', 'RIAF', 'RAF', 'RNZAF', 'UAEAF', 'BPYR', 'LUFT', 'AAF', 'CAEAF', 'CAE', 'RCAF', 'PAF', 'PAKISTAN'];
+            // --- FORCE REGISTRY MAPPING ---
+            const forceRegistry = {
+              'United States of America': ['USAF', 'USAF-T'],
+              'British Empire': ['RAF', 'RN', 'RNFAA', 'RADAF', 'ALF', 'AAF', 'RIAF'],
+              'Royal New Zealand Air Force': ['RNZAF'],
+              'Royal Australian Air Force': ['RAAF', 'RAN'],
+              'Empire of Batavopyraea': ['BPYR', 'RNPN'],
+              'United Arab Emirates': ['UAEAF', 'UAE', 'UAEN', 'UAEAF-P'],
+              'Bundeswehr Luftwaffe': ['LUFT'],
+              'Central African Empire': ['CAEAF', 'CAENF'],
+              'Federation of the South Cone': ['FCS'],
+              'Royal Canadian Air Force': ['RCAF', 'RCN'],
+              'Pakistan': ['PAF', 'PAKISTAN']
+            };
 
-            // 3. INTELLIGENCE CATEGORIZATION
-            // IAF is Friendly. RIAF is a target.
+            const allMilTags = Object.values(forceRegistry).flat();
+
+            // 1. FRIENDLY IAF
             const iafList = scanResult.filter(p => {
                 const n = p.name.toUpperCase();
                 return n.includes('IAF') && !n.includes('RIAF');
             }).map(p => p.name);
             
+            // 2. OTHER AIR FORCES (Grouped)
+            const groupedOtherAF = {};
             const otherAFList = scanResult.filter(p => {
               const name = p.name.toUpperCase();
-              const isMil = milTags.some(tag => name.includes(tag)) || name.includes('AIRFORCE') || name.endsWith('AF');
               const isFriendlyIAF = name.includes('IAF') && !name.includes('RIAF');
-              return isMil && !isFriendlyIAF && !name.startsWith('EK');
+              if (isFriendlyIAF || name.startsWith('EK')) return false;
+
+              // Find which nation they belong to
+              for (const [nation, tags] of Object.entries(forceRegistry)) {
+                if (tags.some(tag => name.includes(tag))) {
+                  if (!groupedOtherAF[nation]) groupedOtherAF[nation] = [];
+                  groupedOtherAF[nation].push(p.name);
+                  return true;
+                }
+              }
+              
+              // Generic Air Force detection for tags not in registry
+              if (name.includes('AIRFORCE') || name.endsWith('AF') || name.includes(' AF')) {
+                  if (!groupedOtherAF['Unknown Foreign AF']) groupedOtherAF['Unknown Foreign AF'] = [];
+                  groupedOtherAF['Unknown Foreign AF'].push(p.name);
+                  return true;
+              }
+              return false;
             });
 
+            // 3. UNIDENTIFIED
             const uList = scanResult.filter(p => {
               const name = p.name.toUpperCase();
               const isFriendly = iafList.includes(p.name);
-              const isOtherAF = otherAFList.some(o => o.name === p.name);
-              return name.includes('[U') && !isFriendly && !isOtherAF;
+              const isOther = otherAFList.some(o => o.name === p.name);
+              return name.includes('[U') && !isFriendly && !isOther;
             }).map(p => p.name);
 
-            // 4. STATUS REPORTING
+            // 4. STATUS LOGIC
             let statusUpdate = '\\n\\n🔵 **STATUS:** All clear. No foreign military in sector.';
             const incursions = otherAFList.filter(p => p.isOverIndia).map(p => p.name);
-            const otherAFNames = otherAFList.map(p => p.name);
 
             if (incursions.length > 0) {
               statusUpdate = '\\n\\n🚨 **RED ALERT: Foreign Military Aircraft detected inside INDIAN AIRSPACE!**\\n**Intercept Targets:** ' + incursions.join(', ');
-            } else if (otherAFNames.length > 0) {
+            } else if (otherAFList.length > 0) {
               statusUpdate = '\\n\\n⚠️ **WARNING: Foreign Military activity detected outside borders.**';
             }
 
-            const report = '🛰️ **GMRP-IAF TACTICAL REPORT**\\n\\n🟢 **IAF:** ' + (iafList.length > 0 ? iafList.join(', ') : 'N/A') + 
+            // 5. FORMATTING THE REPORT
+            let otherAFString = '';
+            for (const [nation, pilots] of Object.entries(groupedOtherAF)) {
+              otherAFString += '\\n' + nation + ' : ' + pilots.join(', ');
+            }
+            if (!otherAFString) otherAFString = ' N/A';
+
+            const report = '🛰️ **GMRP-IAF ANALYTIC & TACTICAL REPORT**\\n\\n🟢 **IAF:** ' + (iafList.length > 0 ? iafList.join(', ') : 'N/A') + 
                            '\\n🟡 **[U]:** ' + (uList.length > 0 ? uList.join(', ') : 'N/A') + 
-                           '\\n🔴 **Other Air Forces:** ' + (otherAFNames.length > 0 ? otherAFNames.join(', ') : 'N/A') + statusUpdate;
+                           '\\n🔴 **Other Air Forces:** ' + otherAFString + statusUpdate;
             
             fs.writeFileSync('report.txt', report);
             await page.screenshot({ path: 'radar.png' });
