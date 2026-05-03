@@ -32,7 +32,7 @@ jobs:
             
             await page.goto('https://geofs-live-radar.onrender.com', { waitUntil: 'networkidle2', timeout: 90000 });
             
-            // Wait for markers
+            // Wait for markers to load
             await new Promise(r => setTimeout(r, 60000)); 
 
             try { await page.click('.fa-moon'); } catch(e) {}
@@ -82,7 +82,6 @@ jobs:
               const isFriendlyIAF = name.includes('IAF') && !name.includes('RIAF');
               if (isFriendlyIAF || name.startsWith('EK')) return false;
 
-              // Find which nation they belong to
               for (const [nation, tags] of Object.entries(forceRegistry)) {
                 if (tags.some(tag => name.includes(tag))) {
                   if (!groupedOtherAF[nation]) groupedOtherAF[nation] = [];
@@ -91,7 +90,6 @@ jobs:
                 }
               }
               
-              // Generic Air Force detection for tags not in registry
               if (name.includes('AIRFORCE') || name.endsWith('AF') || name.includes(' AF')) {
                   if (!groupedOtherAF['Unknown Foreign AF']) groupedOtherAF['Unknown Foreign AF'] = [];
                   groupedOtherAF['Unknown Foreign AF'].push(p.name);
@@ -118,10 +116,10 @@ jobs:
               statusUpdate = '\\n\\n⚠️ **WARNING: Foreign Military activity detected outside borders.**';
             }
 
-            // 5. FORMATTING THE REPORT
+            // 5. FORMATTING THE REPORT (With Bold Nation Names)
             let otherAFString = '';
             for (const [nation, pilots] of Object.entries(groupedOtherAF)) {
-              otherAFString += '\\n' + nation + ' : ' + pilots.join(', ');
+              otherAFString += '\\n**' + nation + '** : ' + pilots.join(', ');
             }
             if (!otherAFString) otherAFString = ' N/A';
 
